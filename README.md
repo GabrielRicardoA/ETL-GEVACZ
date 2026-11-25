@@ -14,7 +14,7 @@ flowchart LR
         C2[monitoramento.csv]
     end
 
-    subgraph Pipeline["⚙️ main.py — orquestrador"]
+    subgraph Pipeline["⚙️ src/main.py — flow Prefect etl-ovitrampas"]
         E[Extract<br/>extract.py<br/><i>pandas.read_csv</i>]
         LB[Load.load_mongo<br/>load.py]
         T[Transform<br/>transform.py<br/><i>limpeza e tipagem</i>]
@@ -60,6 +60,16 @@ Versão em texto (para onde o Mermaid não renderiza):
    - remove linhas duplicadas.
 4. **Load Silver** — `load_neon` recria a tabela no Postgres (`to_sql` só com o cabeçalho, `if_exists="replace"`) e manda os dados com `COPY ... FROM STDIN`, bem mais rápido que um `INSERT` por linha.
 
+## Orquestração (Prefect)
+
+O pipeline é orquestrado com o [Prefect](https://www.prefect.io/):
+
+- [src/main.py](src/main.py) define o **flow** `etl-ovitrampas` (`@flow(log_prints=True)`), que percorre as tabelas e chama cada etapa.
+- Cada etapa é uma **task** do Prefect (`@task(cache_policy=NO_CACHE)`): `Extract.extract_csv`, `Load.load_mongo`, `Transform.transform_to_silver` e `Load.load_neon`. O `NO_CACHE` faz toda execução processar os dados de novo, sem reaproveitar resultados anteriores.
+- Os `print` das etapas aparecem nos logs do Prefect, junto com o estado de cada task.
+- **Agendamento diário:** com `--agendar`, o script fica rodando e executa o flow todo dia às **06:00** (constante `HORA_EXECUCAO`). Se uma execução falhar, o erro é registrado e o agendamento continua. O agendamento é feito em Python porque o `.serve(cron=...)` não agenda nada no servidor temporário do Prefect.
+- No Windows, o `main.py` silencia um `ConnectionResetError [WinError 10054]` inofensivo do asyncio, que aparecia quando o servidor temporário do Prefect era encerrado.
+
 ## Dados
 
 | Tabela | Arquivo | Linhas (aprox.) | Conteúdo |
@@ -75,10 +85,10 @@ As duas tabelas se ligam pela coluna `id_ovt` (ex.: `REC 1001`).
 
 ```
 projeto_certo/
-├── main.py              # orquestra o ETL das duas tabelas
 ├── requeriments.txt     # dependências
 └── src/
     ├── .env             # credenciais (NÃO versionar)
+    ├── main.py          # orquestrador: flow Prefect + agendamento diário
     ├── extract.py       # classe Extract   → lê CSV
     ├── transform.py     # classe Transform → bronze (Mongo) → silver (DataFrame)
     ├── load.py          # classe Load      → grava no Mongo e no Neon
@@ -100,7 +110,7 @@ source .venv/bin/activate
 pip install -r requeriments.txt
 ```
 
-Dependências: `pandas`, `pymongo`, `python-dotenv`, `sqlalchemy`, `certifi`, `psycopg[binary]`.
+Dependências: `pandas`, `pymongo`, `python-dotenv`, `sqlalchemy`, `certifi`, `psycopg[binary]`, `prefect`.
 
 ### 2. Variáveis de ambiente
 
@@ -116,13 +126,21 @@ DATABASE_URL=postgresql+psycopg://<usuario>:<senha>@<host>.neon.tech/<banco>?ssl
 
 ### 3. Executar
 
-Na raiz do projeto:
+Na raiz do projeto, para rodar o ETL **uma vez**:
 
 ```bash
-python main.py
+python src/main.py
+# ou
+python -m src.main
 ```
 
-Saída esperada:
+Para deixar rodando com **execução diária às 06:00** (Ctrl+C para parar):
+
+```bash
+python src/main.py --agendar
+```
+
+Saída esperada (além dos logs do Prefect):
 
 ```
 --- ETL: cadastro ---
@@ -138,7 +156,7 @@ ETL finalizado!
 ## Adicionando uma nova tabela
 
 1. Coloque o CSV em `src/`.
-2. Registre no dicionário `tabelas` em [main.py](main.py):
+2. Registre no dicionário `tabelas` em [src/main.py](src/main.py):
    ```python
    tabelas = {
        "cadastro": "cadastro_2026.csv",
