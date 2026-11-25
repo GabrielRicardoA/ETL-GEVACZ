@@ -4,3 +4,4 @@ python-dotenv
 sqlalchemy
 certifi
 psycopg[binary]
+prefect

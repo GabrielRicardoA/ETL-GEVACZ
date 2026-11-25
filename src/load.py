@@ -4,6 +4,8 @@ import certifi
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from sqlalchemy import create_engine
+from prefect import task
+from prefect.cache_policies import NO_CACHE
 
 load_dotenv()
 
@@ -13,6 +15,7 @@ class Load():
         self.client = MongoClient(os.getenv("MONGODB_uri"), tlsCAFile=certifi.where())
         self.engine = create_engine(os.getenv("DATABASE_URL"))
 
+    @task(cache_policy=NO_CACHE)
     def load_mongo(self, df, db_name, collection_name):
         # troca os vazios (NaN) por None, que o Mongo entende
         df = df.astype(object).where(df.notna(), None)
@@ -23,6 +26,7 @@ class Load():
         colecao.insert_many(registros)
         print(f"{len(registros)} registros inseridos na coleção '{collection_name}'!")
 
+    @task(cache_policy=NO_CACHE)
     def load_neon(self, df, nome_tabela):
         print(f"salvando '{nome_tabela}' no Neon...")
 

@@ -3,6 +3,8 @@ import certifi
 import pandas as pd
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from prefect import task
+from prefect.cache_policies import NO_CACHE
 
 load_dotenv()
 
@@ -32,6 +34,7 @@ class Transform():
             df[col] = pd.to_datetime(df[col], format="%Y-%m-%d", errors="coerce")
         return df
 
+    @task(cache_policy=NO_CACHE)
     def transform_to_silver(self, tabela):
         df = self.ler_bronze(tabela)
 
